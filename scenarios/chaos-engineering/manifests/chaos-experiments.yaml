@@ -46,8 +46,11 @@ spec:
       app: "{{.WorkloadName}}"
   duration: "60s"
 ---
-# Experiment 3: Network Partition - isolate {{.WorkloadName}} from ingress traffic
+# Experiment 3: Network Partition - isolate {{.WorkloadName}} from its callers
 # Tests: Circuit breaker behavior, failover mechanisms
+# The target is the ingress (curl through Traefik) and the namespace
+# 'labctl traffic start' runs k6 in, which calls the Service directly and never
+# crosses Traefik. Without 'traffic' here the scenario's own load misses the fault.
 apiVersion: chaos-mesh.org/v1alpha1
 kind: NetworkChaos
 metadata:
@@ -70,6 +73,7 @@ spec:
     selector:
       namespaces:
         - traefik
+        - traffic
   duration: "60s"
 ---
 # Experiment 4: CPU Stress - saturate CPU on {{.WorkloadName}} pods
@@ -95,10 +99,10 @@ spec:
       load: 80
   duration: "120s"
 ---
-# Experiment 5: Network Delay - add 300ms of latency between {{.WorkloadName}} and ingress
-# Tests: latency budgets, client timeouts. Watch the p99 panel, not the error
+# Experiment 5: Network Delay - add 300ms of latency between {{.WorkloadName}} and its callers
+# Tests: latency budgets, client timeouts. Watch k6's p99 panel, not the error
 # rate: a delayed service is still "up", which is what makes this failure mode
-# harder to spot than a pod kill.
+# harder to spot than a pod kill. Same targets as the partition, for the same reason.
 apiVersion: chaos-mesh.org/v1alpha1
 kind: NetworkChaos
 metadata:
@@ -121,6 +125,7 @@ spec:
     selector:
       namespaces:
         - traefik
+        - traffic
   delay:
     latency: "300ms"
     jitter: "50ms"

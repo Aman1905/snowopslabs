@@ -26,7 +26,7 @@ objectives:
   - "Read the control that is missing: 'kubectl -n {{.WorkloadNamespace}} get pdb' reports disruptionsAllowed 0 / InsufficientPods, so the PDB blocks every drain instead of protecting anything"
   - "Harden the workload with 'kubectl -n {{.WorkloadNamespace}} scale deploy/{{.WorkloadName}} --replicas=3' until the PDB reports disruptionsAllowed >= 1"
   - "Re-run the same pod-kill experiment against the hardened service and prove the outage is gone while the restart still shows on the dashboard"
-  - "Explore the other failure modes (CPU stress, memory stress, network delay and partition) and find the signal that reveals each one, including the two the dashboard cannot show you"
+  - "Explore the other failure modes (CPU stress, memory stress, network delay and partition) and find the signal that reveals each one, including the two {{.WorkloadName}}'s own metrics cannot show you"
 
 components:
   # Chaos Mesh itself is a PLATFORM component (prerequisite chaos/chaos-mesh),
@@ -107,7 +107,7 @@ checks:
     script: checks/blast-radius-contained.sh
     timeoutSeconds: 90
     pending: true
-    remediation: "Harden the workload, then run the SAME experiment again with load flowing: kubectl -n {{.WorkloadNamespace}} scale deploy/{{.WorkloadName}} --replicas=3, then re-apply the pod-kill experiment. The grade is that {{.WorkloadName}}'s request rate never reaches zero across the window - on one replica it flatlines, on three it only dips."
+    remediation: "Harden the workload, then run the SAME experiment again with load flowing: kubectl -n {{.WorkloadNamespace}} scale deploy/{{.WorkloadName}} --replicas=3, then re-apply the pod-kill experiment. The grade is that {{.WorkloadName}}'s request rate never reaches zero across the window - on one replica it flatlines, on three it only dips. It grades the pod-kill re-run: a network-partition cuts every replica off from k6, so the rate falls to near zero on any number of replicas and this check counts that as an outage. Explore the partition after this check passes, or wait until it is more than 15 minutes old."
 
 snippets:
   - label: "Chaos Mesh experiments (pod kill, pod failure, partition, CPU, network delay, memory)"
@@ -156,7 +156,7 @@ explore:
       command: "kubectl get podchaos,networkchaos,stresschaos --all-namespaces"
     - label: "Try another failure mode (swap pod-kill for network-delay, cpu-stress, memory-stress or network-partition)"
       command: "bash {{.ProjectRoot}}/scenarios/chaos-engineering/scripts/inject.sh network-delay --app {{.WorkloadName}} --namespace {{.WorkloadNamespace}}   # or: cpu-stress, memory-stress, network-partition, pod-failure"
-    - label: "Measure client-observed latency through the ingress - the only place a network fault shows"
+    - label: "Measure client-observed latency through the ingress - the second place a network fault shows, next to the k6 panels"
       command: "curl -s -o /dev/null -w 'connect=%{time_connect}s ttfb=%{time_starttransfer}s\\n' http://{{.WorkloadName}}.{{.IngressURLSuffix}}/health"
     - label: "Clean up every experiment and stop the load"
       command: "bash {{.ProjectRoot}}/scenarios/chaos-engineering/scripts/cleanup-experiments.sh --app {{.WorkloadName}} --namespace {{.WorkloadNamespace}} && labctl traffic stop"
@@ -165,8 +165,8 @@ explore:
     - "The two pending checks are the drill: 'chaos-experiment-was-run' goes green once you inject a failure, 'workload-survives-pod-loss' once you scale {{.WorkloadName}} out. Run 'labctl scenario verify chaos-engineering' after each step."
     - "Blast radius is the number to watch, not the restart. On one replica a pod kill drops the HTTP Request Rate panel to zero for several seconds; on three it barely dents it."
     - "A PDB governs VOLUNTARY disruptions (drains, evictions) only. It cannot stop a pod-kill experiment or a node dying - scaling out is what limits both."
-    - "Network delay is the failure mode the dashboard CANNOT show you. {{.WorkloadName}}'s own histogram measures handler time, so it sits at ~4ms while a 300ms NetworkChaos is active; the delay only appears client-side. Measure it with the curl ttfb command above - 'ttfb minus connect' goes from ~4ms to ~600ms."
-    - "network-partition is the other half of that lesson: the {{.WorkloadName}} pod stays 1/1 Ready and its own metrics look perfect, while every request through the ingress fails. A healthy pod is not a reachable service."
+    - "Network delay is the failure mode {{.WorkloadName}}'s own metrics CANNOT show you. Its histogram measures handler time, so it sits at ~4ms while a 300ms NetworkChaos is active; the delay only appears client-side. The experiment targets both the ingress and the 'traffic' namespace k6 runs in, so the k6 latency panel shows it (p99 near 350ms), and so does the curl ttfb command above - 'ttfb minus connect' goes from ~4ms to ~600ms."
+    - "network-partition is the other half of that lesson: the {{.WorkloadName}} pod stays 1/1 Ready and its own metrics look perfect, while every request from k6 and through the ingress fails. A healthy pod is not a reachable service. Run it after 'blast-radius-contained' has passed: it cuts every replica off from the load, so the request rate that check grades falls to near zero however many replicas you run."
     - "Memory stress pushes {{.WorkloadName}} past its 128Mi limit, so the kernel OOMKills the container - watch the OOMKill Events panel, and see RESTARTS climb in kubectl."
     - "CPU stress is where an autoscaler would react. There is none here; 'autoscaling-under-load' is the scenario that adds one."
     - "Experiments are one-shot and expire after their 'duration'. For continuous chaos, create a Schedule from the Chaos Dashboard UI."

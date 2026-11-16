@@ -342,9 +342,22 @@ seconds; at three replicas the rate never leaves the floor.
   [R13](runbooks/R13-observability-pipeline.md).
 - go-api's `http_server_request_duration_seconds` is **handler** time, so it stays flat
   at ~4ms under a 300ms `NetworkChaos` delay. Network faults are only visible
-  client-side (`curl -w time_starttransfer` through the ingress).
+  client-side: on the k6 panels and with `curl -w time_starttransfer` through
+  the ingress.
+- **The network experiments must reach the load generator.** k6 runs in the
+  `traffic` namespace and calls the Service directly, never crossing Traefik.
+  With only `traefik` as the target, k6's p99 stayed under 1ms through the
+  300ms delay and k6 saw no failures through the partition, so
+  `network-delay` and `network-partition` target both namespaces. On a kind
+  lab k6's p99 then reads about 350ms under the delay, and the partition
+  fails k6's requests.
 - A `network-partition` leaves the pod `1/1 Ready` with perfect pod metrics
-  while every request through the ingress fails.
+  while every request from k6 and through the ingress fails. It cuts every
+  replica off from the load, so the request rate that
+  `blast-radius-contained` grades falls to near zero (0.3/s from 20/s on a
+  kind lab) on any number of replicas, and the check counts that as an
+  outage. It grades the pod-kill re-run, so explore the partition after it
+  passes.
 - Chaos Mesh's memory stressor takes stress-ng byte format (`256MB`), not a
   Kubernetes quantity - `256Mi` is rejected by the validating webhook.
 - **`chaos-experiments.yaml` is the one manifest the scenario never installs**,

@@ -359,7 +359,7 @@
      }
     }
    },
-   "description": "$app's own handler timings. This is SERVER-side latency: it is blind to network faults, so a NetworkChaos delay leaves it flat. Measure those client-side with curl's time_starttransfer through the ingress."
+   "description": "$app's own handler timings. This is SERVER-side latency: it is blind to network faults, so a NetworkChaos delay leaves it flat. Read those client-side on the k6 panels below, or with curl's time_starttransfer through the ingress."
   },
   {
    "title": "Pod Restart Timeline",
@@ -677,7 +677,7 @@
   {
    "title": "Client-observed latency (k6)",
    "type": "timeseries",
-   "description": "k6 calls the Service inside the cluster, so it does not cross the ingress where network-delay and network-partition act. Measure those with the curl command on the Explore tab, which goes through the ingress.",
+   "description": "k6 calls the Service from the traffic namespace, which network-delay and network-partition target next to the ingress, so both show here: the delay lifts k6's p99 to roughly 350ms, and the partition shows as failed requests on the panel to the left. The app's own p99 above stays flat through both.",
    "gridPos": {
     "h": 8,
     "w": 12,

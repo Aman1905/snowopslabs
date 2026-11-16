@@ -5,11 +5,16 @@ package cli
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
+	"io/fs"
 	"net"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
+
+	"github.com/snowops-oss/snowopslabs/internal/webui"
 )
 
 func ipNet(s string) *net.IPNet {
@@ -131,6 +136,25 @@ func TestUI_Failures(t *testing.T) {
 		})
 	}
 }
+
+// A broken embed fails loudly at startup, with a next step, instead of
+// silently serving a broken UI that fails later inside a browser request.
+func TestUIDistFS(t *testing.T) {
+	if _, err := uiDistFS(webui.DistFS); err != nil {
+		t.Fatalf("uiDistFS(webui.DistFS) = %v, want no error", err)
+	}
+
+	_, err := uiDistFS(brokenEmbedFS{})
+	if err == nil || !strings.Contains(err.Error(), "make cli-build") {
+		t.Errorf("uiDistFS(brokenEmbedFS{}) = %v, want it to say to run `make cli-build`", err)
+	}
+}
+
+// brokenEmbedFS stands in for an embed whose dist/ subtree failed to load,
+// something the real embed.FS cannot do once it compiles.
+type brokenEmbedFS struct{ fstest.MapFS }
+
+func (brokenEmbedFS) Sub(string) (fs.FS, error) { return nil, errors.New("boom") }
 
 func loadCert(t *testing.T, certFile, keyFile string) *x509.Certificate {
 	t.Helper()

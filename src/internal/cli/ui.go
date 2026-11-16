@@ -163,7 +163,10 @@ func serveUI(cmd *cobra.Command, o uiOptions, plan uiPlan) error {
 	_ = ln.Close()
 	go openBrowser(plan.urls[0])
 
-	uiFS, _ := fs.Sub(webui.DistFS, "dist")
+	uiFS, err := uiDistFS(webui.DistFS)
+	if err != nil {
+		return err
+	}
 
 	// Optional Prometheus endpoint, off unless LABCTL_METRICS=true.
 	var opts []httpapi.ServerOption
@@ -182,6 +185,18 @@ func serveUI(cmd *cobra.Command, o uiOptions, plan uiPlan) error {
 		return server.ServeTLS(cmd.Context(), plan.addr, plan.certFile, plan.keyFile)
 	}
 	return server.Serve(cmd.Context(), plan.addr)
+}
+
+// uiDistFS returns the dist/ subtree of the UI's embedded files - the ones
+// baked into the binary at build time. A broken embed fails here, at
+// startup, with a next step, instead of surfacing later inside a browser
+// request far from the cause.
+func uiDistFS(distFS fs.FS) (fs.FS, error) {
+	sub, err := fs.Sub(distFS, "dist")
+	if err != nil {
+		return nil, fmt.Errorf("loading the embedded UI: %w; build it in with `make cli-build`", err)
+	}
+	return sub, nil
 }
 
 func openBrowser(url string) {

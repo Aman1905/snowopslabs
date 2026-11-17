@@ -1,0 +1,32 @@
+# Grafana's Tempo datasource. install.sh applies it next to Grafana (namespace
+# rendered from MONITORING_NAMESPACE) and uninstall.sh deletes it; Grafana's
+# datasource sidecar loads every ConfigMap labelled grafana_datasource="1".
+# prune: true lets Grafana drop the datasource once this file is gone.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tempo-grafana-datasource
+  labels:
+    grafana_datasource: "1"
+data:
+  tempo-datasource.yaml: |
+    apiVersion: 1
+    prune: true
+    datasources:
+      - name: Tempo
+        uid: tempo
+        type: tempo
+        # Tempo's HTTP API listens on 3200, not 3100. Pointing Grafana at 3100
+        # makes every trace query fail with a connection error.
+        url: http://tempo.monitoring.svc.cluster.local:3200
+        editable: true
+        jsonData:
+          # And the jump back: from a trace's span to that pod's logs in Loki.
+          tracesToLogsV2:
+            datasourceUid: loki
+            spanStartTimeShift: "-2m"
+            spanEndTimeShift: "2m"
+            filterByTraceID: true
+            tags:
+              - key: service.name
+                value: app

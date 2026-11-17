@@ -1,0 +1,29 @@
+# Grafana's Loki datasource. install.sh applies it next to Grafana (namespace
+# rendered from MONITORING_NAMESPACE) and uninstall.sh deletes it; Grafana's
+# datasource sidecar loads every ConfigMap labelled grafana_datasource="1".
+# prune: true lets Grafana drop the datasource once this file is gone.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-grafana-datasource
+  labels:
+    grafana_datasource: "1"
+data:
+  loki-datasource.yaml: |
+    apiVersion: 1
+    prune: true
+    datasources:
+      - name: Loki
+        uid: loki
+        type: loki
+        url: http://loki-gateway.monitoring.svc.cluster.local
+        editable: true
+        jsonData:
+          # go-api logs a trace_id on every request line. derivedFields turns it
+          # into a link that opens the trace in Tempo - the logs-to-traces jump.
+          derivedFields:
+            - name: TraceID
+              datasourceUid: tempo
+              matcherRegex: '"trace_id":"(\w+)"'
+              url: "$${__value.raw}"
+              urlDisplayLabel: "View trace"

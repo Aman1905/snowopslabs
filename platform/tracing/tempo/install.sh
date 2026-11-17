@@ -37,4 +37,10 @@ helm_upgrade_install tempo "$NAMESPACE" grafana-community/tempo \
 echo "Waiting for Tempo to be ready..."
 kubectl rollout status statefulset/tempo -n "$NAMESPACE" --timeout=120s || true
 
+# Grafana's Tempo datasource, loaded by Grafana's datasource sidecar. It lives
+# here, not in grafana's values, so a lab without tracing lists no Tempo.
+echo "Adding the Tempo datasource to Grafana..."
+sed "s/\.monitoring\.svc/.${NAMESPACE}.svc/g" "$SCRIPT_DIR/grafana-datasource.yaml" |
+  kubectl apply --namespace "$NAMESPACE" -f -
+
 echo "Tempo installed successfully."

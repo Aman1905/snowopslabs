@@ -126,6 +126,13 @@ every ESO metric.
 **Tempo's HTTP API is port 3200**, not 3100. A datasource pointed at 3100 fails
 every query and looks exactly like "nothing was traced".
 
+**Grafana lists Loki and Tempo only while they are installed.** Grafana's own
+values provision Prometheus alone. The logging and tracing providers apply
+their datasource as a ConfigMap labelled `grafana_datasource=1`, and
+observability-sre applies its own copy for the Loki and Tempo it installs.
+Grafana's datasource sidecar loads them and, with `prune: true`, drops each one
+when its ConfigMap is deleted.
+
 **Kafka needs two metric sources.** `spec.kafka.metricsConfig` (JMX) gives
 broker throughput and replication health; the separate kafka-exporter gives
 consumer-group lag. Without `metricsConfig` there are no broker metrics at all.

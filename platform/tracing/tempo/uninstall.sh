@@ -3,6 +3,9 @@ set -euo pipefail
 
 NAMESPACE="${MONITORING_NAMESPACE:-monitoring}"
 
+# Grafana's sidecar drops the Tempo datasource with its ConfigMap.
+kubectl delete configmap tempo-grafana-datasource --namespace "$NAMESPACE" --ignore-not-found
+
 echo "Uninstalling Tempo..."
 helm uninstall tempo --namespace "$NAMESPACE" 2>/dev/null || true
 

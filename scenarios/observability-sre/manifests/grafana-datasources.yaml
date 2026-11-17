@@ -1,0 +1,65 @@
+# Grafana's Loki and Tempo datasources for this scenario's own Loki and Tempo.
+#
+# Grafana provisions only Prometheus. The logging and tracing platform
+# providers apply the same datasources as loki-grafana-datasource and
+# tempo-grafana-datasource; these ConfigMaps carry the scenario's name and file
+# keys, so teardown removes only the scenario's copy and a platform-installed
+# Loki or Tempo keeps its datasource. Keep the datasource blocks identical to
+# platform/logging/loki/grafana-datasource.yaml and
+# platform/tracing/tempo/grafana-datasource.yaml (a bats test compares them).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: observability-sre-loki-datasource
+  namespace: "{{.MonitoringNamespace}}"
+  labels:
+    grafana_datasource: "1"
+data:
+  observability-sre-loki.yaml: |
+    apiVersion: 1
+    prune: true
+    datasources:
+      - name: Loki
+        uid: loki
+        type: loki
+        url: http://loki-gateway.{{.MonitoringNamespace}}.svc.cluster.local
+        editable: true
+        jsonData:
+          # go-api logs a trace_id on every request line. derivedFields turns it
+          # into a link that opens the trace in Tempo - the logs-to-traces jump.
+          derivedFields:
+            - name: TraceID
+              datasourceUid: tempo
+              matcherRegex: '"trace_id":"(\w+)"'
+              url: "$${__value.raw}"
+              urlDisplayLabel: "View trace"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: observability-sre-tempo-datasource
+  namespace: "{{.MonitoringNamespace}}"
+  labels:
+    grafana_datasource: "1"
+data:
+  observability-sre-tempo.yaml: |
+    apiVersion: 1
+    prune: true
+    datasources:
+      - name: Tempo
+        uid: tempo
+        type: tempo
+        # Tempo's HTTP API listens on 3200, not 3100. Pointing Grafana at 3100
+        # makes every trace query fail with a connection error.
+        url: http://tempo.{{.MonitoringNamespace}}.svc.cluster.local:3200
+        editable: true
+        jsonData:
+          # And the jump back: from a trace's span to that pod's logs in Loki.
+          tracesToLogsV2:
+            datasourceUid: loki
+            spanStartTimeShift: "-2m"
+            spanEndTimeShift: "2m"
+            filterByTraceID: true
+            tags:
+              - key: service.name
+                value: app

@@ -3,6 +3,9 @@ set -euo pipefail
 
 NAMESPACE="${MONITORING_NAMESPACE:-monitoring}"
 
+# Grafana's sidecar drops the Loki datasource with its ConfigMap.
+kubectl delete configmap loki-grafana-datasource --namespace "$NAMESPACE" --ignore-not-found
+
 echo "Uninstalling Promtail..."
 helm uninstall promtail --namespace "$NAMESPACE" 2>/dev/null || true
 

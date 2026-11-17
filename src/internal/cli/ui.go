@@ -35,6 +35,7 @@ type uiPlan struct {
 	urls              []string // the addresses people open, best first
 	certFile, keyFile string
 	notes             []string // printed after the URLs: TLS details and warnings
+	uiFS              fs.FS    // the embedded UI's dist/ subtree
 }
 
 func uiCmd() *cobra.Command {
@@ -50,7 +51,7 @@ For a team server, bind to the network with authentication and HTTPS:
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			hostname, _ := os.Hostname()
 			addrs, _ := net.InterfaceAddrs()
-			plan, err := planUI(o, auth.Enabled(), cfg.StateDir, hostname, addrs, time.Now())
+			plan, err := planUI(o, auth.Enabled(), cfg.StateDir, hostname, addrs, time.Now(), webui.DistFS)
 			if err != nil {
 				return err
 			}
@@ -69,7 +70,7 @@ For a team server, bind to the network with authentication and HTTPS:
 // planUI checks the flags and works out the address, the URLs to print and
 // the certificate to serve, before anything listens. A network bind needs
 // auth; with --tls-self-signed the certificate covers every URL printed.
-func planUI(o uiOptions, authOn bool, stateDir, hostname string, addrs []net.Addr, now time.Time) (uiPlan, error) {
+func planUI(o uiOptions, authOn bool, stateDir, hostname string, addrs []net.Addr, now time.Time, distFS fs.FS) (uiPlan, error) {
 	// Refuse to expose an unauthenticated control API to the network.
 	if err := httpapi.CheckBind(o.bind, authOn); err != nil {
 		return uiPlan{}, err
@@ -80,7 +81,11 @@ func planUI(o uiOptions, authOn bool, stateDir, hostname string, addrs []net.Add
 	if (o.tlsCert == "") != (o.tlsKey == "") {
 		return uiPlan{}, errors.New("--tls-cert and --tls-key must be provided together")
 	}
-	plan := uiPlan{addr: net.JoinHostPort(o.bind, o.port), certFile: o.tlsCert, keyFile: o.tlsKey}
+	uiFS, err := uiDistFS(distFS)
+	if err != nil {
+		return uiPlan{}, err
+	}
+	plan := uiPlan{addr: net.JoinHostPort(o.bind, o.port), certFile: o.tlsCert, keyFile: o.tlsKey, uiFS: uiFS}
 	scheme := "http"
 	if o.selfSigned || o.tlsCert != "" {
 		scheme = "https"
@@ -163,10 +168,7 @@ func serveUI(cmd *cobra.Command, o uiOptions, plan uiPlan) error {
 	_ = ln.Close()
 	go openBrowser(plan.urls[0])
 
-	uiFS, err := uiDistFS(webui.DistFS)
-	if err != nil {
-		return err
-	}
+	uiFS := plan.uiFS
 
 	// Optional Prometheus endpoint, off unless LABCTL_METRICS=true.
 	var opts []httpapi.ServerOption
@@ -187,10 +189,8 @@ func serveUI(cmd *cobra.Command, o uiOptions, plan uiPlan) error {
 	return server.Serve(cmd.Context(), plan.addr)
 }
 
-// uiDistFS returns the dist/ subtree of the UI's embedded files - the ones
-// baked into the binary at build time. A broken embed fails here, at
-// startup, with a next step, instead of surfacing later inside a browser
-// request far from the cause.
+// uiDistFS returns the dist/ subtree of the embedded UI, or an error naming
+// `make cli-build` if the embed is broken.
 func uiDistFS(distFS fs.FS) (fs.FS, error) {
 	sub, err := fs.Sub(distFS, "dist")
 	if err != nil {

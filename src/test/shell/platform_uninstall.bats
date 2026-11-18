@@ -90,3 +90,15 @@ $script: unbounded namespace delete: kubectl $line" ;;
   run grep -E 'cart|shop|go-api' "$STUB_LOG"
   [ "$status" -ne 0 ] || { echo "names an app: $output"; false; }
 }
+
+# Grafana's sidecar drops a datasource when its ConfigMap goes, so removing
+# logging or tracing also removes their datasource from Grafana.
+@test "loki and tempo uninstall delete their Grafana datasource" {
+  export MONITORING_NAMESPACE=obs
+  run bash "$ROOT/platform/logging/loki/uninstall.sh"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  assert_called kubectl "delete configmap loki-grafana-datasource --namespace obs --ignore-not-found"
+  run bash "$ROOT/platform/tracing/tempo/uninstall.sh"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  assert_called kubectl "delete configmap tempo-grafana-datasource --namespace obs --ignore-not-found"
+}

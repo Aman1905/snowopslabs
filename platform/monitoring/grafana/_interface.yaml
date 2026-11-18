@@ -7,7 +7,7 @@ description: Dashboard and visualization platform for observability data.
 
 provides:
   - Web-based dashboard interface
-  - Data source integration (Prometheus, Loki, Tempo)
+  - Data source integration (Prometheus; Loki and Tempo while logging and tracing are installed)
   - Dashboard provisioning via ConfigMap sidecar
   - Alerting visualization
 
@@ -34,6 +34,7 @@ conventions:
   - Grafana must be accessible via ingress at grafana.${DOMAIN_SUFFIX}
   - Prometheus datasource must be auto-provisioned on install
   - Dashboard sidecar must watch for ConfigMaps with label grafana_dashboard=1
+  - Datasource sidecar must watch for ConfigMaps with label grafana_datasource=1 in Grafana's namespace; a provider that adds a backend applies its datasource that way
   - Dashboards provisioned by scenarios are wrapped in ConfigMaps by the scenario engine
   - Internal endpoint: http://grafana.monitoring.svc.cluster.local:80
 

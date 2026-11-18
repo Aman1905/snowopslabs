@@ -72,6 +72,14 @@ stages:
         platformValues: tracing/tempo
         adopt: true
 
+      # Grafana provisions only Prometheus; Loki and Tempo bring their own
+      # datasource. The platform providers apply theirs, and this copy covers
+      # the Loki and Tempo the scenario installs itself.
+      - name: grafana-datasources
+        type: manifest
+        path: manifests/grafana-datasources.yaml
+        namespace: "{{.MonitoringNamespace}}"
+
       # Applications export OTLP to Alloy, and Alloy forwards to Tempo. The
       # collector owns batching, retry and sampling, so the trace backend can be
       # swapped without redeploying a single application.

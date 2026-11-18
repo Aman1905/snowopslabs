@@ -49,6 +49,12 @@ helm_upgrade_install loki "$NAMESPACE" grafana-community/loki \
 echo "Waiting for Loki to be ready..."
 kubectl rollout status statefulset/loki -n "$NAMESPACE" --timeout=120s || true
 
+# Grafana's Loki datasource, loaded by Grafana's datasource sidecar. It lives
+# here, not in grafana's values, so a lab without logging lists no Loki.
+echo "Adding the Loki datasource to Grafana..."
+sed "s/\.monitoring\.svc/.${NAMESPACE}.svc/g" "$SCRIPT_DIR/grafana-datasource.yaml" |
+  kubectl apply --namespace "$NAMESPACE" -f -
+
 echo "Installing Promtail..."
 
 # Render promtail-values.yaml with the real monitoring namespace. This file used

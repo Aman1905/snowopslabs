@@ -171,6 +171,91 @@ EOF
   esac
 }
 
+# Grafana lists a datasource only while its backend is installed. A Loki or
+# Tempo datasource on a lab without logging or tracing fails its health check
+# and reads as a broken lab, so grafana provisions Prometheus alone and loki
+# and tempo bring their own datasource as a ConfigMap the sidecar loads.
+@test "grafana provisions Prometheus alone and loads other datasources from ConfigMaps" {
+  values="$ROOT/platform/monitoring/grafana/values.yaml"
+  run grep -nE 'type: (loki|tempo)$' "$values"
+  [ "$status" -ne 0 ] || { echo "grafana provisions: $output"; false; }
+  grep -q 'type: prometheus$' "$values"
+  run awk '/^sidecar:/ { s = 1; next } s && /^[^ ]/ { s = 0 } s && /^  datasources:/ { d = 1; next } d && /^  [^ ]/ { d = 0 } d { print }' "$values"
+  [[ "$output" == *"enabled: true"* ]] || { echo "datasource sidecar is off: $output"; false; }
+  [[ "$output" == *"label: grafana_datasource"* ]] || { echo "$output"; false; }
+  [[ "$output" == *'labelValue: "1"'* ]] || { echo "$output"; false; }
+  # GF_SECURITY_ADMIN_USER in env stops the chart from passing the user the
+  # sidecar's reload call needs (it still passes the password).
+  [[ "$output" == *"REQ_USERNAME:"* ]] || { echo "reload has no user: $output"; false; }
+  [[ "$output" != *"REQ_PASSWORD:"* ]] || { echo "the chart already sets REQ_PASSWORD: $output"; false; }
+}
+
+# prune drops only what a prune: true file added, so grafana's own file deletes
+# Loki and Tempo by name. Grafana reads the files in name order: every provider
+# file must sort after grafana's, or its datasource is deleted after it is added.
+@test "grafana deletes stale Loki and Tempo before the providers' files add them" {
+  values="$ROOT/platform/monitoring/grafana/values.yaml"
+  run awk '/^    deleteDatasources:$/ { d = 1; next } d && /^    [^ ]/ { d = 0 } d && /name:/ { print $NF }' "$values"
+  [ "$output" = "$(printf 'Loki\nTempo')" ] || { echo "deleteDatasources: $output"; false; }
+  grep -q '^  datasources.yaml:$' "$values"
+  for f in platform/logging/loki/grafana-datasource.yaml platform/tracing/tempo/grafana-datasource.yaml \
+    scenarios/observability-sre/manifests/grafana-datasources.yaml; do
+    keys="$(grep -E '^  [a-z0-9.-]+\.yaml: \|$' "$ROOT/$f" | sed 's/^  //; s/: |$//')"
+    [ -n "$keys" ] || { echo "no datasource file in $f"; false; }
+    for key in $keys; do
+      [[ "$key" > "datasources.yaml" ]] || { echo "$f: $key sorts before datasources.yaml"; false; }
+    done
+  done
+}
+
+datasource_apply_stub() {
+  stub_script kubectl <<'EOF'
+case "$*" in
+  "apply --namespace obs -f -") cat >>"$STUB_DIR/applied.yaml" ;;
+esac
+EOF
+}
+
+@test "loki and tempo install apply their Grafana datasource in the monitoring namespace" {
+  export MONITORING_NAMESPACE=obs
+  for c in "logging/loki|loki|http://loki-gateway.obs.svc.cluster.local" \
+    "tracing/tempo|tempo|http://tempo.obs.svc.cluster.local:3200"; do
+    reset_calls
+    rm -f "$STUB_DIR/applied.yaml"
+    datasource_apply_stub
+    run bash "$ROOT/platform/${c%%|*}/install.sh"
+    [ "$status" -eq 0 ] || { echo "${c%%|*}: $output"; false; }
+    applied="$STUB_DIR/applied.yaml"
+    [ -s "$applied" ] || { echo "${c%%|*} applies no datasource"; false; }
+    rest="${c#*|}"
+    uid="${rest%%|*}"
+    grep -q '^kind: ConfigMap$' "$applied" || { cat "$applied"; false; }
+    grep -q "^  name: $uid-grafana-datasource\$" "$applied" || { cat "$applied"; false; }
+    grep -q '^    grafana_datasource: "1"$' "$applied" || { cat "$applied"; false; }
+    grep -q '^    prune: true$' "$applied" || { cat "$applied"; false; }
+    grep -q "^        uid: $uid\$" "$applied" || { cat "$applied"; false; }
+    grep -q "^        url: ${rest#*|}\$" "$applied" || { cat "$applied"; false; }
+    run grep -n '\.monitoring\.svc' "$applied"
+    [ "$status" -ne 0 ] || { echo "${c%%|*} keeps the default namespace: $output"; false; }
+  done
+}
+
+# observability-sre installs its own Loki and Tempo when the platform has none,
+# so it applies its own copy of their datasources. The copies must not drift.
+@test "observability-sre's Grafana datasources match the platform's" {
+  scenario="$ROOT/scenarios/observability-sre/manifests/grafana-datasources.yaml"
+  grep -q 'path: manifests/grafana-datasources.yaml$' "$ROOT/scenarios/observability-sre/scenario.yaml"
+  for c in "logging/loki|observability-sre-loki.yaml" "tracing/tempo|observability-sre-tempo.yaml"; do
+    platform="$ROOT/platform/${c%%|*}/grafana-datasource.yaml"
+    awk '/^    apiVersion: 1$/ { on = 1 } on' "$platform" >"$BATS_TEST_TMPDIR/platform"
+    awk -v key="  ${c#*|}: |" '$0 == key { on = 1; next } /^---$/ { on = 0 } on' "$scenario" |
+      sed 's/{{\.MonitoringNamespace}}/monitoring/g' >"$BATS_TEST_TMPDIR/scenario"
+    [ -s "$BATS_TEST_TMPDIR/platform" ] || { echo "no datasource in ${platform#"$ROOT"/}"; false; }
+    run diff "$BATS_TEST_TMPDIR/platform" "$BATS_TEST_TMPDIR/scenario"
+    [ "$status" -eq 0 ] || { echo "${c%%|*}: $output"; false; }
+  done
+}
+
 # client-go in helm and kubectl prints an error for each API group the
 # apiserver cannot serve yet: the metrics API while metrics-server starts, and
 # the CRDs a chart has just installed. labctl shows them only with --verbose.

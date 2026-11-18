@@ -31,9 +31,23 @@ initChownData:
   enabled: false
 
 # Datasources provisioning (correct format for Grafana Helm chart)
+# Only Prometheus: every lab has it. Loki and Tempo come and go with the
+# logging and tracing providers, which apply their datasource as a ConfigMap
+# for the datasource sidecar below.
+#
+# deleteDatasources clears a Loki or Tempo entry that Grafana's database holds
+# with no provider file behind it. prune: true cannot: Grafana prunes only
+# datasources that a prune: true file added. Grafana reads its provisioning
+# files in name order and this one sorts first, so where a provider is
+# installed its file adds the datasource straight back, under the same uid.
 datasources:
   datasources.yaml:
     apiVersion: 1
+    deleteDatasources:
+      - name: Loki
+        orgId: 1
+      - name: Tempo
+        orgId: 1
     datasources:
       - name: Prometheus
         uid: prometheus
@@ -41,37 +55,6 @@ datasources:
         url: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
         isDefault: true
         editable: true
-      - name: Loki
-        uid: loki
-        type: loki
-        url: http://loki-gateway.monitoring.svc.cluster.local
-        editable: true
-        jsonData:
-          # go-api logs a trace_id on every request line. derivedFields turns it
-          # into a link that opens the trace in Tempo - the logs-to-traces jump.
-          derivedFields:
-            - name: TraceID
-              datasourceUid: tempo
-              matcherRegex: '"trace_id":"(\w+)"'
-              url: "$${__value.raw}"
-              urlDisplayLabel: "View trace"
-      - name: Tempo
-        uid: tempo
-        type: tempo
-        # Tempo's HTTP API listens on 3200, not 3100. Pointing Grafana at 3100
-        # makes every trace query fail with a connection error.
-        url: http://tempo.monitoring.svc.cluster.local:3200
-        editable: true
-        jsonData:
-          # And the jump back: from a trace's span to that pod's logs in Loki.
-          tracesToLogsV2:
-            datasourceUid: loki
-            spanStartTimeShift: "-2m"
-            spanEndTimeShift: "2m"
-            filterByTraceID: true
-            tags:
-              - key: service.name
-                value: app
 
 # Dashboards provisioning
 dashboardProviders:
@@ -91,7 +74,28 @@ dashboardsConfigMaps:
   default: grafana-dashboards
 
 # The dashboard sidecar watches for ConfigMaps labelled grafana_dashboard="1" and loads them live.
+# The datasource sidecar does the same for grafana_datasource="1" in Grafana's
+# own namespace and reloads provisioning, so a provider's datasource appears
+# when its ConfigMap is applied and goes when it is deleted (the provider's
+# file sets prune: true), with no Grafana restart.
 sidecar:
+  datasources:
+    enabled: true
+    label: grafana_datasource
+    labelValue: "1"
+    resource: configmap
+    env:
+      # The dashboard sidecar already listens on the default 8080 in this pod.
+      HEALTH_PORT: "8081"
+    # The reload call needs Grafana's admin login. The chart passes the user only
+    # when env below does not set GF_SECURITY_ADMIN_USER, which it does, so
+    # without this the reload is refused and a new datasource waits for a
+    # restart. The chart still passes the password.
+    envValueFrom:
+      REQ_USERNAME:
+        secretKeyRef:
+          name: '{{ include "grafana.fullname" . }}'
+          key: admin-user
   dashboards:
     enabled: true
     label: grafana_dashboard

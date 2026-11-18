@@ -5,11 +5,16 @@ package cli
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
+	"io/fs"
 	"net"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
+
+	"github.com/snowops-oss/snowopslabs/internal/webui"
 )
 
 func ipNet(s string) *net.IPNet {
@@ -46,7 +51,7 @@ func TestPlanUI(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			state := t.TempDir()
-			plan, err := planUI(tt.opts, tt.auth, state, "lab-host", testAddrs, now)
+			plan, err := planUI(tt.opts, tt.auth, state, "lab-host", testAddrs, now, webui.DistFS)
 			if err != nil {
 				t.Fatalf("planUI: %v", err)
 			}
@@ -75,7 +80,7 @@ func TestPlanUI(t *testing.T) {
 // A self-signed certificate covers every URL the server prints, so a
 // participant who checks the fingerprint gets no name mismatch.
 func TestPlanUI_SelfSignedCoversEveryURL(t *testing.T) {
-	plan, err := planUI(uiOptions{port: "3939", bind: "0.0.0.0", selfSigned: true}, true, t.TempDir(), "lab-host", testAddrs, time.Now())
+	plan, err := planUI(uiOptions{port: "3939", bind: "0.0.0.0", selfSigned: true}, true, t.TempDir(), "lab-host", testAddrs, time.Now(), webui.DistFS)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,15 +98,17 @@ func TestPlanUI_Failures(t *testing.T) {
 		name    string
 		opts    uiOptions
 		auth    bool
+		distFS  fs.FS
 		wantErr string
 	}{
-		{"a network bind without auth", uiOptions{bind: "0.0.0.0"}, false, "LABCTL_AUTH=true"},
-		{"self-signed with the operator's certificate", uiOptions{bind: "127.0.0.1", selfSigned: true, tlsCert: "c.pem", tlsKey: "k.pem"}, false, "drop --tls-cert and --tls-key"},
-		{"a certificate without its key", uiOptions{bind: "127.0.0.1", tlsCert: "c.pem"}, false, "must be provided together"},
+		{"a network bind without auth", uiOptions{bind: "0.0.0.0"}, false, webui.DistFS, "LABCTL_AUTH=true"},
+		{"self-signed with the operator's certificate", uiOptions{bind: "127.0.0.1", selfSigned: true, tlsCert: "c.pem", tlsKey: "k.pem"}, false, webui.DistFS, "drop --tls-cert and --tls-key"},
+		{"a certificate without its key", uiOptions{bind: "127.0.0.1", tlsCert: "c.pem"}, false, webui.DistFS, "must be provided together"},
+		{"a broken embedded UI", uiOptions{bind: "127.0.0.1"}, false, brokenEmbedFS{}, "make cli-build"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := planUI(tt.opts, tt.auth, t.TempDir(), "h", testAddrs, time.Now())
+			_, err := planUI(tt.opts, tt.auth, t.TempDir(), "h", testAddrs, time.Now(), tt.distFS)
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("planUI = %v, want it to say %q", err, tt.wantErr)
 			}
@@ -131,6 +138,25 @@ func TestUI_Failures(t *testing.T) {
 		})
 	}
 }
+
+// uiDistFS succeeds against the real embed, and wraps a broken one's error
+// with a next step.
+func TestUIDistFS(t *testing.T) {
+	if _, err := uiDistFS(webui.DistFS); err != nil {
+		t.Fatalf("uiDistFS(webui.DistFS) = %v, want no error", err)
+	}
+
+	_, err := uiDistFS(brokenEmbedFS{})
+	if err == nil || !strings.Contains(err.Error(), "make cli-build") {
+		t.Errorf("uiDistFS(brokenEmbedFS{}) = %v, want it to say to run `make cli-build`", err)
+	}
+}
+
+// brokenEmbedFS stands in for an embed whose dist/ subtree failed to load,
+// something the real embed.FS cannot do once it compiles.
+type brokenEmbedFS struct{ fstest.MapFS }
+
+func (brokenEmbedFS) Sub(string) (fs.FS, error) { return nil, errors.New("boom") }
 
 func loadCert(t *testing.T, certFile, keyFile string) *x509.Certificate {
 	t.Helper()

@@ -133,6 +133,13 @@ observability-sre applies its own copy for the Loki and Tempo it installs.
 Grafana's datasource sidecar loads them and, with `prune: true`, drops each one
 when its ConfigMap is deleted.
 
+A lab created while Grafana's values still listed Loki and Tempo keeps both in
+Grafana's database, failing their health check, and `prune` does not touch
+them. Run `labctl platform up monitoring/grafana`: the `deleteDatasources` in
+its values clears them. On a lab with logging or tracing, follow it with
+`labctl platform up logging/loki tracing/tempo`, so their ConfigMaps bring the
+datasources back.
+
 **Kafka needs two metric sources.** `spec.kafka.metricsConfig` (JMX) gives
 broker throughput and replication health; the separate kafka-exporter gives
 consumer-group lag. Without `metricsConfig` there are no broker metrics at all.

@@ -1,12 +1,6 @@
-# Grafana's Loki and Tempo datasources for this scenario's own Loki and Tempo.
-#
-# Grafana provisions only Prometheus. The logging and tracing platform
-# providers apply the same datasources as loki-grafana-datasource and
-# tempo-grafana-datasource; these ConfigMaps carry the scenario's name and file
-# keys, so teardown removes only the scenario's copy and a platform-installed
-# Loki or Tempo keeps its datasource. Keep the datasource blocks identical to
-# platform/logging/loki/grafana-datasource.yaml and
-# platform/tracing/tempo/grafana-datasource.yaml (a bats test compares them).
+# Grafana's Loki and Tempo datasources for the Loki and Tempo this scenario
+# installs. Keep them identical to platform/logging/loki/grafana-datasource.yaml
+# and platform/tracing/tempo/grafana-datasource.yaml (a bats test compares them).
 apiVersion: v1
 kind: ConfigMap
 metadata:

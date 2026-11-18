@@ -190,6 +190,24 @@ EOF
   [[ "$output" != *"REQ_PASSWORD:"* ]] || { echo "the chart already sets REQ_PASSWORD: $output"; false; }
 }
 
+# prune drops only what a prune: true file added, so grafana's own file deletes
+# Loki and Tempo by name. Grafana reads the files in name order: every provider
+# file must sort after grafana's, or its datasource is deleted after it is added.
+@test "grafana deletes stale Loki and Tempo before the providers' files add them" {
+  values="$ROOT/platform/monitoring/grafana/values.yaml"
+  run awk '/^    deleteDatasources:$/ { d = 1; next } d && /^    [^ ]/ { d = 0 } d && /name:/ { print $NF }' "$values"
+  [ "$output" = "$(printf 'Loki\nTempo')" ] || { echo "deleteDatasources: $output"; false; }
+  grep -q '^  datasources.yaml:$' "$values"
+  for f in platform/logging/loki/grafana-datasource.yaml platform/tracing/tempo/grafana-datasource.yaml \
+    scenarios/observability-sre/manifests/grafana-datasources.yaml; do
+    keys="$(grep -E '^  [a-z0-9.-]+\.yaml: \|$' "$ROOT/$f" | sed 's/^  //; s/: |$//')"
+    [ -n "$keys" ] || { echo "no datasource file in $f"; false; }
+    for key in $keys; do
+      [[ "$key" > "datasources.yaml" ]] || { echo "$f: $key sorts before datasources.yaml"; false; }
+    done
+  done
+}
+
 datasource_apply_stub() {
   stub_script kubectl <<'EOF'
 case "$*" in

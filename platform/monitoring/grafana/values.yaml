@@ -33,11 +33,21 @@ initChownData:
 # Datasources provisioning (correct format for Grafana Helm chart)
 # Only Prometheus: every lab has it. Loki and Tempo come and go with the
 # logging and tracing providers, which apply their datasource as a ConfigMap
-# for the datasource sidecar below. Listing them here made Grafana show two
-# failing datasources on every lab without those providers.
+# for the datasource sidecar below.
+#
+# deleteDatasources clears a Loki or Tempo entry that Grafana's database holds
+# with no provider file behind it. prune: true cannot: Grafana prunes only
+# datasources that a prune: true file added. Grafana reads its provisioning
+# files in name order and this one sorts first, so where a provider is
+# installed its file adds the datasource straight back, under the same uid.
 datasources:
   datasources.yaml:
     apiVersion: 1
+    deleteDatasources:
+      - name: Loki
+        orgId: 1
+      - name: Tempo
+        orgId: 1
     datasources:
       - name: Prometheus
         uid: prometheus

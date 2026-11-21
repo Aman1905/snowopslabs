@@ -65,3 +65,18 @@ services live **outside** this repository and never gate the open core. What was
 deliberately cut from the open scope, and why, is
 [ADR-0001](docs/adr/0001-cut-cloud-and-commercial-scope.md); hosted labs as a
 long-term goal are [ADR-0016](docs/adr/0016-hosted-labs-long-term.md).
+
+The project makes these commitments to its users and contributors:
+
+- **The licence stays Apache-2.0.** There is no relicensing and no
+  source-available edition.
+- **Nothing that shipped free moves behind payment.** A feature, scenario,
+  incident, path or challenge released in this repository stays here.
+- **Every track keeps a free core** that teaches that area end to end: its
+  scenarios, incidents, a learning path and a challenge
+  ([ADR-0017](docs/adr/0017-tracks-and-targets.md)).
+- **The free catalog keeps growing.** New free content ships for as long as
+  the project is maintained.
+- **This repository never depends on anything private.** It does not import,
+  name, test or call commercial code, and no part of the lab asks you to
+  upgrade.
